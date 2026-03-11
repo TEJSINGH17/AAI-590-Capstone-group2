@@ -1,0 +1,1 @@
+{"schema_version":1,"timestamp_ms":1773270811243,"sequence":1055,"detections":[{"class_id":2,"confidence":0.3097854256629944,"x_center":0.5091482162475586,"y_center":0.9248356854474103,"width":0.9443035125732422,"height":0.14311314335575812,"source_id":0,"frame_num":1055,"label":"car"}]}
