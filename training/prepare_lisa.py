@@ -103,9 +103,10 @@ def _read_annotations(
     dict mapping absolute image path string →
         list of (class_idx, cx, cy, w, h) in normalised YOLO format.
     """
-    import cv2
+    from PIL import Image
 
     ann: dict[str, list[tuple[int, float, float, float, float]]] = {}
+    dim_cache: dict[str, tuple[int, int]] = {}  # img path → (h, w)
     skipped_tags: set[str] = set()
     missing_images: int = 0
 
@@ -151,10 +152,15 @@ def _read_annotations(
                 except (KeyError, ValueError):
                     continue
 
-                img = cv2.imread(str(img_path))
-                if img is None:
-                    continue
-                img_h, img_w = img.shape[:2]
+                key = str(img_path)
+                if key not in dim_cache:
+                    try:
+                        with Image.open(key) as im:
+                            img_w, img_h = im.size
+                        dim_cache[key] = (img_h, img_w)
+                    except Exception:
+                        continue
+                img_h, img_w = dim_cache[key]
 
                 cx = max(0.0, min(1.0, (x1 + x2) / 2.0 / img_w))
                 cy = max(0.0, min(1.0, (y1 + y2) / 2.0 / img_h))
@@ -162,7 +168,6 @@ def _read_annotations(
                 h = max(0.0, min(1.0, (y2 - y1) / img_h))
 
                 class_idx = TAG_TO_IDX[tag]
-                key = str(img_path)
                 ann.setdefault(key, []).append((class_idx, cx, cy, w, h))
 
     if skipped_tags:
@@ -228,6 +233,7 @@ def prepare(
     out_root: str,
     val_split: float,
     seed: int,
+    max_images: int
 ) -> Path:
     lisa_path = Path(lisa_root)
     out_path = Path(out_root)
@@ -246,6 +252,10 @@ def prepare(
     items = list(ann.items())
     random.seed(seed)
     random.shuffle(items)
+
+    if max_images and max_images < len(items):
+        log.info("Capping dataset at %d images (from %d).", max_images, len(items))
+        items = items[:max_images]
 
     n_val = max(1, int(len(items) * val_split))
     val_items = items[:n_val]
@@ -290,13 +300,19 @@ def parse_args() -> argparse.Namespace:
         default=42,
         help="Random seed for reproducible train/val split",
     )
+    p.add_argument(
+        "--max_images",
+        type=int,
+        default=None,
+        help="Cap the total number of images used (None = use all)",
+    )
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     yaml_path = prepare(
-        args.lisa_root, args.out_root, args.val_split, args.seed
+        args.lisa_root, args.out_root, args.val_split, args.seed, args.max_images
     )
     print(
         f"\nDataset ready. Pass this to train_yolov8.py:\n"

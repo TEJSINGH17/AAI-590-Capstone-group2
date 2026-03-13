@@ -54,10 +54,40 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
+
+
+def _resolve_path(path_str: str | None, *, must_exist: bool = False) -> Path | None:
+    """Resolve CLI paths from cwd first, then relative to the repository root."""
+    if path_str is None:
+        return None
+
+    path = Path(path_str).expanduser()
+    candidates = [path] if path.is_absolute() else [Path.cwd() / path, REPO_ROOT / path]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+
+    resolved = candidates[0].resolve()
+    if must_exist:
+        raise FileNotFoundError(f"Path not found: {path_str}")
+    return resolved
+
+
+def _default_device() -> str:
+    try:
+        import torch
+    except ImportError:
+        return "0"
+
+    return "0" if torch.cuda.is_available() else "cpu"
+
 
 def train(args: argparse.Namespace) -> Path:
     try:
@@ -67,7 +97,8 @@ def train(args: argparse.Namespace) -> Path:
             "ultralytics is not installed. Run:  pip install ultralytics"
         )
 
-    data_path = Path(args.data)
+    data_path = _resolve_path(args.data, must_exist=True)
+    assert data_path is not None
     if not data_path.exists():
         raise FileNotFoundError(
             f"Dataset YAML not found: {data_path}\n"
@@ -76,13 +107,25 @@ def train(args: argparse.Namespace) -> Path:
 
     # Resolve starting weights
     if args.resume:
-        weights = args.resume
+        resume_path = _resolve_path(args.resume, must_exist=True)
+        assert resume_path is not None
+        weights = str(resume_path)
         log.info("Resuming from checkpoint: %s", weights)
     else:
-        weights = args.base_model
+        base_model_path = _resolve_path(args.base_model, must_exist=False)
+        weights = (
+            str(base_model_path)
+            if base_model_path is not None and base_model_path.exists()
+            else args.base_model
+        )
         log.info("Starting from base model: %s", weights)
 
     model = YOLO(weights)
+
+    project_dir = _resolve_path(args.project, must_exist=False)
+    out_dir = _resolve_path(args.out_dir, must_exist=False)
+    assert project_dir is not None
+    assert out_dir is not None
 
     # Build kwargs for model.train()
     train_kwargs: dict = dict(
@@ -94,7 +137,7 @@ def train(args: argparse.Namespace) -> Path:
         device=args.device,
         lr0=args.lr0,
         patience=args.patience,
-        project=args.project,
+        project=str(project_dir),
         name=args.name,
         exist_ok=True,
         # Augmentation
@@ -118,7 +161,7 @@ def train(args: argparse.Namespace) -> Path:
     results = model.train(**train_kwargs)
 
     # Locate best.pt produced by this run
-    run_dir = Path(args.project) / args.name
+    run_dir = Path(results.save_dir)
     best_pt = run_dir / "weights" / "best.pt"
 
     if not best_pt.exists():
@@ -128,7 +171,6 @@ def train(args: argparse.Namespace) -> Path:
         )
 
     # Copy to trained_models/
-    out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / "yolov8n_lisa_best.pt"
     shutil.copy2(best_pt, dest)
@@ -174,14 +216,14 @@ def parse_args() -> argparse.Namespace:
         default="training/lisa_yolo/dataset.yaml",
         help="Path to dataset.yaml produced by prepare_lisa.py",
     )
-    p.add_argument("--base_model", default="models/yolov8n.pt",
-                   help="Base YOLOv8 weights to fine-tune from")
+    p.add_argument("--base_model", default="yolov8n.pt",
+                   help="Base YOLOv8 weights or a local checkpoint path")
     p.add_argument("--epochs", type=int, default=50)
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--batch", type=int, default=16,
                    help="Batch size; use -1 for ultralytics auto-batch")
     p.add_argument("--workers", type=int, default=4)
-    p.add_argument("--device", default="0",
+    p.add_argument("--device", default=_default_device(),
                    help="CUDA device index(es) or 'cpu'")
     p.add_argument("--lr0", type=float, default=0.01,
                    help="Initial learning rate")
