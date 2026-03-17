@@ -2,18 +2,25 @@ import cv2
 import json
 import socket
 import time
+import os
 import numpy as np
 from ultralytics import YOLO
 from dataclasses import dataclass, asdict
 from typing import List
+from pathlib import Path
 
 # Configuration
-VIDEO_PATH  = "/home/logicpro09/omniview_ai/output_ds_1_reenc.mp4"
-MODEL_PATH  = "/home/logicpro09/omniview_ai/yolov8n_lisa_v1.1.pt"
-CONF_THRESH = 0.25
-UDP_HOST    = "127.0.0.1"
-UDP_PORT    = 5055
-DISPLAY     = True
+VIDEO_PATH   = "/home/logicpro09/omniview_ai/output_ds_3_reenc.mp4"
+MODEL_PATH   = "/home/logicpro09/omniview_ai/yolov8n_lisa_v1.1.pt"
+CONF_THRESH  = 0.25
+UDP_HOST     = "127.0.0.1"
+UDP_PORT     = 5055
+DISPLAY      = True
+
+# Dual output modes
+UDP_ENABLED  = True
+SAVE_JSON    = True
+JSON_OUT_DIR = "/home/logicpro09/omniview_ai/runs/hud/ds_3"
 
 @dataclass
 class DetectionPayload:
@@ -63,7 +70,12 @@ def print_benchmark_report(metrics: dict):
 def main():
     model = YOLO(MODEL_PATH)
     cap   = cv2.VideoCapture(VIDEO_PATH)
-    sock  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) if UDP_ENABLED else None
+
+    # Create JSON output directory if needed
+    if SAVE_JSON:
+        Path(JSON_OUT_DIR).mkdir(parents=True, exist_ok=True)
+        print(f"JSON files -> {JSON_OUT_DIR}")
 
     # Benchmark tracking
     frame_num        = 0
@@ -76,14 +88,14 @@ def main():
     payload_sizes    = []
 
     print("Starting OmniView AI pipeline with benchmarking...")
-    print(f"UDP stream -> {UDP_HOST}:{UDP_PORT}")
+    if UDP_ENABLED:
+        print(f"UDP stream -> {UDP_HOST}:{UDP_PORT}")
     print(f"Video: {VIDEO_PATH}")
     print("-"*50)
 
     pipeline_start = time.time()
 
     while True:
-        # End-to-end timer start
         e2e_start = time.time()
 
         ret, frame = cap.read()
@@ -92,7 +104,6 @@ def main():
 
         img_h, img_w = frame.shape[:2]
 
-        # Inference timer
         infer_start = time.time()
         results = model.predict(source=frame, conf=CONF_THRESH, verbose=False)
         infer_end = time.time()
@@ -125,32 +136,37 @@ def main():
                 label=label,
             ))
 
-            # Draw bounding box
             cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
             cv2.putText(frame, f"{label} {conf:.2f}",
                         (int(x1), int(y1) - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        # Build and send UDP payload
+        # Build message
         message = build_message(detections, sequence)
-        sock.sendto(message, (UDP_HOST, UDP_PORT))
         payload_sizes.append(len(message))
+
+        # Send UDP
+        if UDP_ENABLED and sock:
+            sock.sendto(message, (UDP_HOST, UDP_PORT))
+
+        # Save JSON file
+        if SAVE_JSON:
+            json_path = os.path.join(JSON_OUT_DIR, f"frame_{frame_num:06d}.json")
+            with open(json_path, "w") as f:
+                f.write(message.decode("utf-8"))
 
         if detections:
             total_detections += len(detections)
             frames_with_dets += 1
 
-        # End-to-end timer end
         e2e_end = time.time()
         e2e_ms  = (e2e_end - e2e_start) * 1000
         e2e_times.append(e2e_ms)
 
-        # FPS calculation (rolling over last 30 frames)
         if len(e2e_times) >= 2:
             fps = 1000 / e2e_ms
             fps_list.append(fps)
 
-        # Display FPS on frame
         if len(fps_list) > 0:
             cv2.putText(frame, f"FPS: {fps_list[-1]:.1f}",
                         (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
@@ -174,27 +190,30 @@ def main():
     total_time   = pipeline_end - pipeline_start
 
     cap.release()
-    sock.close()
+    if sock:
+        sock.close()
     if DISPLAY:
         cv2.destroyAllWindows()
 
-    # Print benchmark report
+    if SAVE_JSON:
+        print(f"JSON files saved to: {JSON_OUT_DIR}")
+
     metrics = {
-        "total_frames":        frame_num,
-        "total_detections":    total_detections,
-        "total_time":          total_time,
-        "avg_fps":             np.mean(fps_list) if fps_list else 0,
-        "min_fps":             np.min(fps_list) if fps_list else 0,
-        "max_fps":             np.max(fps_list) if fps_list else 0,
-        "avg_infer_ms":        np.mean(infer_times),
-        "min_infer_ms":        np.min(infer_times),
-        "max_infer_ms":        np.max(infer_times),
-        "avg_e2e_ms":          np.mean(e2e_times),
-        "min_e2e_ms":          np.min(e2e_times),
-        "max_e2e_ms":          np.max(e2e_times),
-        "avg_payload_bytes":   np.mean(payload_sizes),
+        "total_frames":           frame_num,
+        "total_detections":       total_detections,
+        "total_time":             total_time,
+        "avg_fps":                np.mean(fps_list) if fps_list else 0,
+        "min_fps":                np.min(fps_list) if fps_list else 0,
+        "max_fps":                np.max(fps_list) if fps_list else 0,
+        "avg_infer_ms":           np.mean(infer_times),
+        "min_infer_ms":           np.min(infer_times),
+        "max_infer_ms":           np.max(infer_times),
+        "avg_e2e_ms":             np.mean(e2e_times),
+        "min_e2e_ms":             np.min(e2e_times),
+        "max_e2e_ms":             np.max(e2e_times),
+        "avg_payload_bytes":      np.mean(payload_sizes),
         "frames_with_detections": frames_with_dets,
-        "detection_rate":      (frames_with_dets / frame_num * 100) if frame_num > 0 else 0,
+        "detection_rate":         (frames_with_dets / frame_num * 100) if frame_num > 0 else 0,
     }
     print_benchmark_report(metrics)
 
