@@ -8,8 +8,8 @@ from dataclasses import dataclass, asdict
 from typing import List
 
 # Configuration
-VIDEO_PATH  = "/home/logicpro09/omniview_ai/output_ds_3_reenc.mp4"
-MODEL_PATH  = "/home/logicpro09/omniview_ai/yolov8n_lisa_best.pt"
+VIDEO_PATH  = "/home/logicpro09/omniview_ai/output_ds_1_reenc.mp4"
+MODEL_PATH  = "/home/logicpro09/omniview_ai/yolov8n_lisa_v1.1.pt"
 CONF_THRESH = 0.25
 UDP_HOST    = "127.0.0.1"
 UDP_PORT    = 5055
