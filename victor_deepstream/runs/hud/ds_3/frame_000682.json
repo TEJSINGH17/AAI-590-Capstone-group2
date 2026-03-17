@@ -1,1 +1,1 @@
-{"schema_version":1,"timestamp_ms":1773709492272,"sequence":682,"detections":[]}
+{"schema_version":1,"timestamp_ms":1773710143364,"sequence":682,"detections":[{"class_id":0,"confidence":0.2829,"x_center":0.2111,"y_center":0.4594,"width":0.0097,"height":0.021,"source_id":0,"frame_num":682,"label":"go","blind_spot":"none"}]}

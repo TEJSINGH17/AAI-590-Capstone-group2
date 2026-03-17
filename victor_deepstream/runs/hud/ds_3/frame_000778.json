@@ -1,1 +1,1 @@
-{"schema_version":1,"timestamp_ms":1773709493532,"sequence":778,"detections":[{"class_id":4,"confidence":0.2896,"x_center":0.3591,"y_center":0.4442,"width":0.006,"height":0.0164,"source_id":0,"frame_num":778,"label":"stopLeft"}]}
+{"schema_version":1,"timestamp_ms":1773710144971,"sequence":778,"detections":[{"class_id":4,"confidence":0.2604,"x_center":0.3591,"y_center":0.4441,"width":0.006,"height":0.0163,"source_id":0,"frame_num":778,"label":"stopLeft","blind_spot":"none"}]}
