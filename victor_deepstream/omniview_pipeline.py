@@ -5,14 +5,16 @@ import time
 import os
 import numpy as np
 from ultralytics import YOLO
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from typing import List
 from pathlib import Path
 
 # Configuration
 VIDEO_PATH   = "/home/logicpro09/omniview_ai/output_ds_3_reenc.mp4"
-MODEL_PATH   = "/home/logicpro09/omniview_ai/yolov8n_lisa_v1.1.pt"
+LISA_MODEL   = "/home/logicpro09/omniview_ai/yolov8n_lisa_v1.1.pt"
+COCO_MODEL   = "/home/logicpro09/omniview_ai/yolov8n.pt"
 CONF_THRESH  = 0.25
+COCO_THRESH  = 0.40
 UDP_HOST     = "127.0.0.1"
 UDP_PORT     = 5055
 DISPLAY      = True
@@ -22,22 +24,30 @@ UDP_ENABLED  = True
 SAVE_JSON    = True
 JSON_OUT_DIR = "/home/logicpro09/omniview_ai/runs/hud/ds_3"
 
+# Video recording
+RECORD       = True
+OUTPUT_VIDEO = "/home/logicpro09/omniview_ai/omniview_output.mp4"
+
 # Blind spot thresholds
-BLIND_SPOT_YELLOW = 0.25  # yellow alert threshold
-BLIND_SPOT_RED    = 0.50  # red alert threshold
+BLIND_SPOT_YELLOW = 0.25
+BLIND_SPOT_RED    = 0.50
+
+# COCO classes relevant to blind spot detection
+BLIND_SPOT_CLASSES = {"person", "bicycle", "car", "motorcycle", "bus", "truck"}
 
 @dataclass
 class DetectionPayload:
-    class_id:      int
-    confidence:    float
-    x_center:      float
-    y_center:      float
-    width:         float
-    height:        float
-    source_id:     int
-    frame_num:     int
-    label:         str
-    blind_spot:    str = "none"  # none, left, right
+    class_id:   int
+    confidence: float
+    x_center:   float
+    y_center:   float
+    width:      float
+    height:     float
+    source_id:  int
+    frame_num:  int
+    label:      str
+    blind_spot: str = "none"
+    model:      str = "lisa"
 
 def build_message(detections: List[DetectionPayload], sequence: int) -> bytes:
     payload = {
@@ -49,8 +59,8 @@ def build_message(detections: List[DetectionPayload], sequence: int) -> bytes:
     return json.dumps(payload, separators=(",", ":")).encode("utf-8")
 
 def get_blind_spot_zones(width, height):
-    left_zone  = (0,                  int(height * 0.48), int(width * 0.22), height)
-    right_zone = (int(width * 0.78),  int(height * 0.48), width,            height)
+    left_zone  = (0,                 int(height * 0.48), int(width * 0.22), height)
+    right_zone = (int(width * 0.78), int(height * 0.48), width,            height)
     return left_zone, right_zone
 
 def point_in_zone(cx, cy, zone):
@@ -59,11 +69,11 @@ def point_in_zone(cx, cy, zone):
 
 def get_box_color(conf, in_blind_spot):
     if not in_blind_spot:
-        return (0, 255, 0)   # green - normal
+        return (0, 255, 0)
     elif conf < BLIND_SPOT_RED:
-        return (0, 255, 255) # yellow - low confidence blind spot
+        return (0, 255, 255)
     else:
-        return (0, 0, 255)   # red - high confidence blind spot
+        return (0, 0, 255)
 
 def draw_blind_spot_zones(frame, left_zone, right_zone):
     overlay = frame.copy()
@@ -126,28 +136,45 @@ def print_benchmark_report(metrics: dict):
     print(f"  Frames with detections : {metrics['frames_with_detections']}")
     print(f"  Detection rate         : {metrics['detection_rate']:.1f}%")
     print(f"  Blind spot alerts      : {metrics['blind_spot_alerts']}")
+    print(f"  LISA detections        : {metrics['lisa_detections']}")
+    print(f"  COCO detections        : {metrics['coco_detections']}")
     print("="*50)
 
 def main():
-    model = YOLO(MODEL_PATH)
-    cap   = cv2.VideoCapture(VIDEO_PATH)
-    sock  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) if UDP_ENABLED else None
+    lisa_model = YOLO(LISA_MODEL)
+    coco_model = YOLO(COCO_MODEL)
+    cap        = cv2.VideoCapture(VIDEO_PATH)
+    sock       = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) if UDP_ENABLED else None
+
+    # Video writer setup
+    writer = None
+    if RECORD:
+        fps_vid = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        width   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc  = cv2.VideoWriter_fourcc(*'mp4v')
+        writer  = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps_vid, (width, height))
+        print(f"Recording -> {OUTPUT_VIDEO}")
 
     if SAVE_JSON:
         Path(JSON_OUT_DIR).mkdir(parents=True, exist_ok=True)
         print(f"JSON files -> {JSON_OUT_DIR}")
 
-    frame_num        = 0
-    sequence         = 0
-    total_detections = 0
-    frames_with_dets = 0
-    blind_spot_alerts= 0
-    infer_times      = []
-    e2e_times        = []
-    fps_list         = []
-    payload_sizes    = []
+    frame_num         = 0
+    sequence          = 0
+    total_detections  = 0
+    frames_with_dets  = 0
+    blind_spot_alerts = 0
+    lisa_det_count    = 0
+    coco_det_count    = 0
+    infer_times       = []
+    e2e_times         = []
+    fps_list          = []
+    payload_sizes     = []
 
-    print("Starting OmniView AI pipeline with blind spot detection...")
+    print("Starting OmniView AI pipeline - dual model...")
+    print(f"LISA model: traffic sign detection")
+    print(f"COCO model: vehicle/pedestrian blind spot detection")
     if UDP_ENABLED:
         print(f"UDP stream -> {UDP_HOST}:{UDP_PORT}")
     print(f"Video: {VIDEO_PATH}")
@@ -165,25 +192,62 @@ def main():
         img_h, img_w = frame.shape[:2]
         left_zone, right_zone = get_blind_spot_zones(img_w, img_h)
 
-        # Draw blind spot zones
         draw_blind_spot_zones(frame, left_zone, right_zone)
 
+        # Run both models
         infer_start = time.time()
-        results = model.predict(source=frame, conf=CONF_THRESH, verbose=False)
+        lisa_results = lisa_model.predict(source=frame, conf=CONF_THRESH, verbose=False)
+        coco_results = coco_model.predict(source=frame, conf=COCO_THRESH, verbose=False)
         infer_end = time.time()
         infer_ms = (infer_end - infer_start) * 1000
         infer_times.append(infer_ms)
 
-        boxes      = results[0].boxes
-        detections = []
+        detections  = []
         left_alert  = False
         right_alert = False
 
-        for box in boxes:
+        # Process LISA detections (traffic signs)
+        for box in lisa_results[0].boxes:
             x1, y1, x2, y2 = box.xyxy[0].tolist()
             cls_id  = int(box.cls[0])
             conf    = float(box.conf[0])
-            label   = model.names[cls_id]
+            label   = lisa_model.names[cls_id]
+
+            x_center = ((x1 + x2) / 2) / img_w
+            y_center = ((y1 + y2) / 2) / img_h
+            width    = (x2 - x1) / img_w
+            height   = (y2 - y1) / img_h
+
+            detections.append(DetectionPayload(
+                class_id=cls_id,
+                confidence=round(conf, 4),
+                x_center=round(x_center, 4),
+                y_center=round(y_center, 4),
+                width=round(width, 4),
+                height=round(height, 4),
+                source_id=0,
+                frame_num=frame_num,
+                label=label,
+                blind_spot="none",
+                model="lisa",
+            ))
+
+            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+            cv2.putText(frame, f"{label} {conf:.2f}",
+                        (int(x1), int(y1) - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            lisa_det_count += 1
+
+        # Process COCO detections (vehicles/pedestrians for blind spot)
+        for box in coco_results[0].boxes:
+            cls_id  = int(box.cls[0])
+            label   = coco_model.names[cls_id]
+
+            if label not in BLIND_SPOT_CLASSES:
+                continue
+
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            conf    = float(box.conf[0])
 
             x_center = ((x1 + x2) / 2) / img_w
             y_center = ((y1 + y2) / 2) / img_h
@@ -193,7 +257,6 @@ def main():
             cx = int((x1 + x2) / 2)
             cy = int((y1 + y2) / 2)
 
-            # Check blind spot zones
             in_left  = point_in_zone(cx, cy, left_zone)
             in_right = point_in_zone(cx, cy, right_zone)
             in_blind_spot = in_left or in_right
@@ -219,17 +282,17 @@ def main():
                 frame_num=frame_num,
                 label=label,
                 blind_spot=blind_spot_side,
+                model="coco",
             ))
 
             cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
             cv2.putText(frame, f"{label} {conf:.2f}",
                         (int(x1), int(y1) - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            coco_det_count += 1
 
-        # Draw alert banners
         draw_alerts(frame, left_alert, right_alert)
 
-        # Build and send message
         message = build_message(detections, sequence)
         payload_sizes.append(len(message))
 
@@ -250,8 +313,8 @@ def main():
         e2e_times.append(e2e_ms)
 
         if len(e2e_times) >= 2:
-            fps = 1000 / e2e_ms
-            fps_list.append(fps)
+            fps_val = 1000 / e2e_ms
+            fps_list.append(fps_val)
 
         if len(fps_list) > 0:
             cv2.putText(frame, f"FPS: {fps_list[-1]:.1f}",
@@ -264,8 +327,11 @@ def main():
                         (20, 215), cv2.FONT_HERSHEY_SIMPLEX,
                         0.8, (0, 255, 255), 2)
 
+        if RECORD and writer:
+            writer.write(frame)
+
         if DISPLAY:
-            cv2.imshow("OmniView AI - Traffic Sign Detection + Blind Spot", frame)
+            cv2.imshow("OmniView AI - Traffic Sign + Blind Spot Detection", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
@@ -276,6 +342,9 @@ def main():
     total_time   = pipeline_end - pipeline_start
 
     cap.release()
+    if writer:
+        writer.release()
+        print(f"Video saved to: {OUTPUT_VIDEO}")
     if sock:
         sock.close()
     if DISPLAY:
@@ -301,6 +370,8 @@ def main():
         "frames_with_detections": frames_with_dets,
         "detection_rate":         (frames_with_dets / frame_num * 100) if frame_num > 0 else 0,
         "blind_spot_alerts":      blind_spot_alerts,
+        "lisa_detections":        lisa_det_count,
+        "coco_detections":        coco_det_count,
     }
     print_benchmark_report(metrics)
 
