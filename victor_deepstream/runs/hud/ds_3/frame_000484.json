@@ -1,1 +1,1 @@
-{"schema_version":1,"timestamp_ms":1773710140097,"sequence":484,"detections":[]}
+{"schema_version":1,"timestamp_ms":1773813772282,"sequence":484,"detections":[{"class_id":2,"confidence":0.7524,"x_center":0.4199,"y_center":0.5277,"width":0.0787,"height":0.1032,"source_id":0,"frame_num":484,"label":"car","blind_spot":"none","model":"coco"},{"class_id":2,"confidence":0.6217,"x_center":0.3118,"y_center":0.5234,"width":0.0394,"height":0.0393,"source_id":0,"frame_num":484,"label":"car","blind_spot":"none","model":"coco"}]}

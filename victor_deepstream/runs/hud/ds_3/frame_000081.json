@@ -1,1 +1,1 @@
-{"schema_version":1,"timestamp_ms":1773710133470,"sequence":81,"detections":[]}
+{"schema_version":1,"timestamp_ms":1773813759568,"sequence":81,"detections":[{"class_id":2,"confidence":0.7986,"x_center":0.5432,"y_center":0.53,"width":0.0846,"height":0.1307,"source_id":0,"frame_num":81,"label":"car","blind_spot":"none","model":"coco"}]}
