@@ -26,5 +26,4 @@ training/lisa_yolo/
 runs/train/
 runs/hud/
 runs/annotated/
-victor_deepstream/AR_Glasses_HUD_local_test.ipynb
 application/.ipynb_checkpoints/
