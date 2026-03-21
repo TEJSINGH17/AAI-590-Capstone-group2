@@ -1,0 +1,37 @@
+# NvDCF tracker config for DeepStream 7.x
+# Docs: https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvtracker.html
+
+%YAML:1.0
+
+BaseConfig:
+  minDetectorConfidence: 0
+
+TargetManagement:
+  enableBBoxUnClipping: 1
+  maxTargetsPerStream: 150
+  minIouDiff4NewTarget: 0.5
+  minAge: 1
+  maxAge: 100
+  minVisibilityByTracker: 0.0
+
+DataAssociator:
+  associatorType: 1
+  thresholdIou: 0.0
+  thresholdAge: 0
+  thresholdHighConfidenceTarget: 0.5
+
+StateManagement:
+  minVpDetections: 1
+  enableTCMHighConfidence: 0
+  minDetectorConfidenceToTriggerFastReset: 0.95
+  minTrackerConfidenceToTriggerFastReset: 0.9
+
+TrajectoryManagement:
+  useUniqueID: 0
+
+ObservationClustering:
+  clusteringType: 1
+  thresholdIouCov: 0.0
+
+BoundaryHandling:
+  ignoreBorderIouThreshold: 0.0

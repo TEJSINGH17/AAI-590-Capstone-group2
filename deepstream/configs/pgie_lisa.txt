@@ -1,0 +1,29 @@
+# nvinfer config — Secondary GIE: YOLOv8n LISA traffic signs
+# Patched at runtime by ds_pipeline.py for absolute paths.
+# Custom parser: DeepStream-Yolo (build via build_parser.sh)
+#
+# IMPORTANT: num-detected-classes must match your LISA model exactly.
+# Run this on Jetson to check:
+#   python3 -c "from ultralytics import YOLO; m=YOLO('models/yolov8n_lisa_v1.1.engine'); print(len(m.names))"
+
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+onnx-file=../../models/yolov8n_lisa_v1.1.onnx
+model-engine-file=../../models/yolov8n_lisa_v1.1_deepstream.engine
+labelfile-path=../../deepstream/labels/lisa.txt
+batch-size=1
+network-mode=2
+num-detected-classes=7
+cluster-mode=2
+interval=0
+gie-unique-id=2
+custom-lib-path=../../deepstream/configs/libnvdsinfer_custom_impl_Yolo.so
+engine-create-func-name=NvDsInferYoloCudaEngineGet
+parse-bbox-func-name=NvDsInferParseYolo
+
+[class-attrs-all]
+nms-iou-threshold=0.45
+pre-cluster-threshold=0.15
+topk=100
