@@ -332,15 +332,29 @@ class VideoWidget(QWidget):
         self.setStyleSheet("background-color: black;")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
+        # Overlay message (shown when no source is available)
+        self._msg_label = QLabel(self)
+        self._msg_label.setAlignment(Qt.AlignCenter)
+        self._msg_label.setFont(QFont("Arial", 22, QFont.Bold))
+        self._msg_label.setStyleSheet("color: #888888; background-color: transparent;")
+        self._msg_label.setWordWrap(True)
+        self._msg_label.hide()
+
+    def show_message(self, text: str):
+        self._msg_label.setText(text)
+        self._msg_label.show()
+        self._msg_label.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._msg_label.setGeometry(0, 0, self.width(), self.height())
+        self._apply_handle()
+
     def set_sink(self, sink):
         self._sink = sink
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._apply_handle()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
         self._apply_handle()
 
     def _apply_handle(self):
@@ -450,6 +464,14 @@ class Dashboard(QMainWindow):
         QTimer.singleShot(500, lambda: self._start_pipeline(args))
 
     def _start_pipeline(self, args):
+        # No source available — show message and skip pipeline
+        if args.source == "none":
+            self._video_widget.show_message(
+                "No video source found.\n\n"
+                "Connect the EMEET C950 camera\n"
+                "or add a test MP4 file, then restart.")
+            return
+
         Gst.init(None)
 
         coco_cfg    = str(CONFIGS / "pgie_coco.txt")

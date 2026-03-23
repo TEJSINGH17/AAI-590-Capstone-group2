@@ -132,29 +132,62 @@ sudo systemctl restart deepstream
 sudo systemctl disable deepstream
 
 ----------------------------------------------
+STEP 9 — Dashboard controls (daily use)
+----------------------------------------------
+# Open a terminal anytime (even while dashboard is running)
+Ctrl+Alt+T
+
+# Stop the dashboard / free the desktop
+sudo systemctl stop deepstream
+
+# Start it again
+sudo systemctl start deepstream
+
+# Restart (e.g. after a code change)
+sudo systemctl restart deepstream
+
+# Check if it's running
+sudo systemctl status deepstream
+
+# View live logs
+journalctl -u deepstream -f
+
+# Disable auto-start on boot (pipeline will NOT launch next reboot)
+sudo systemctl disable deepstream
+
+# Re-enable auto-start on boot
+sudo systemctl enable deepstream
+
+# Run manually without systemd (for testing)
+cd /home/tej/capstone
+./start.sh          # auto-detect camera or MP4
+./start.sh mp4      # force MP4 test file
+./start.sh camera   # force EMEET C950 USB camera
+
+----------------------------------------------
 NOTES
 ----------------------------------------------
-- Steps 2, 3, 4, 5, 6 are one-time only
+- Steps 2, 3, 4, 5, 6, 8 are one-time only
+- Step 9 commands are for daily use
 - Camera: EMEET C950 USB → /dev/video0 (auto-detected)
-- Output: annotated video displayed on HDMI monitor (nveglglessink)
-- For RTSP iPad streaming: ./start.sh mp4 --output rtsp (or set OUTPUT_MODE=rtsp in start.sh)
+- Output: PyQt5 dashboard on HDMI monitor (video left, STOP/GO alert right)
+- For RTSP iPad streaming: set OUTPUT_MODE=rtsp in start.sh
 - Jetson IP     : 10.0.0.119
 - Press Ctrl+C to stop pipeline (manual mode)
-- No PyTorch needed — nvinfer uses TensorRT directly
+- No PyTorch needed for DeepStream — nvinfer uses TensorRT directly
+- PyQt5 dashboard uses ultralytics CPU inference for STOP/GO alert panel
 
-
-
+----------------------------------------------
+PREREQUISITES (one-time installs if missing)
+----------------------------------------------
+# PyQt5
 sudo apt-get install -y python3-pyqt5
 
-python3 -c "
-import sys
-sys.path.insert(0, '/opt/nvidia/deepstream/deepstream/lib')
-import pyds
-print('pyds OK:', pyds.__file__)
-"
-
-find /opt/nvidia /usr/lib /usr/local/lib -name "pyds*.so" 2>/dev/null
-
+# Verify ultralytics
 python3 -c "from ultralytics import YOLO; m = YOLO('models/yolov8n_lisa_v1.1.pt'); print('OK')"
 
+# Verify OpenCV
+python3 -c "import cv2; print(cv2.__version__)"
+# If missing:
+pip3 install opencv-python-headless
 

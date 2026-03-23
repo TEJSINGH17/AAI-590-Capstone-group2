@@ -29,26 +29,34 @@ fi
 # Determine source
 MODE="${1:-auto}"
 
+WIDTH=1920
+HEIGHT=1080
+
 if [ "$MODE" = "camera" ]; then
-    SOURCE=$USB_DEVICE
-    WIDTH=1920
-    HEIGHT=1080
+    if [ -e "$USB_DEVICE" ]; then
+        SOURCE=$USB_DEVICE
+    else
+        echo "[WARN] Camera not found at $USB_DEVICE — launching dashboard with no-source message."
+        SOURCE=none
+    fi
 elif [ "$MODE" = "mp4" ]; then
-    SOURCE=$TEST_MP4
-    WIDTH=1920
-    HEIGHT=1080
+    if [ -f "$TEST_MP4" ]; then
+        SOURCE=$TEST_MP4
+    else
+        echo "[WARN] MP4 not found at $TEST_MP4 — launching dashboard with no-source message."
+        SOURCE=none
+    fi
 else
     # Auto-detect
     if [ -e "$USB_DEVICE" ]; then
         echo "[INFO] Camera detected at $USB_DEVICE — using live feed."
         SOURCE=$USB_DEVICE
-        WIDTH=1920
-        HEIGHT=1080
-    else
+    elif [ -f "$TEST_MP4" ]; then
         echo "[INFO] No camera found — using MP4 test file."
         SOURCE=$TEST_MP4
-        WIDTH=1920
-        HEIGHT=1080
+    else
+        echo "[WARN] No camera and no MP4 found — launching dashboard with no-source message."
+        SOURCE=none
     fi
 fi
 
