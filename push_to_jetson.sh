@@ -16,6 +16,8 @@ RSYNC_CMD="rsync -avz --exclude='.git/' --exclude='__pycache__/' \
     --exclude='*.pyc' --exclude='training_data/' --exclude='runs/' \
     --include='deepstream/***' \
     --include='jetson_run.txt' \
+    --include='start.sh' \
+    --include='deepstream.service' \
     --exclude='*' \
     \"$LOCAL_PATH/\" \
     \"$JETSON_USER@$JETSON_IP:$JETSON_PATH/\""

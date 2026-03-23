@@ -52,6 +52,7 @@ import json
 import os
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -60,11 +61,24 @@ gi.require_version("Gst", "1.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gst, GLib
 
+# Try multiple pyds locations (DeepStream installs it here on Jetson)
+for _p in ["/opt/nvidia/deepstream/deepstream/lib",
+           "/usr/lib/python3/dist-packages"]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 try:
     import pyds
     _PYDS_AVAILABLE = True
 except ImportError:
     _PYDS_AVAILABLE = False
+
+try:
+    import cv2
+    import numpy as np
+    _CV2_AVAILABLE = True
+except ImportError:
+    _CV2_AVAILABLE = False
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 
@@ -76,6 +90,73 @@ TRACKER_LIB = (
     "/libnvds_nvmultiobjecttracker.so"
 )
 PARSER_LIB  = str(CONFIGS / "libnvdsinfer_custom_impl_Yolo.so")
+
+LISA_STOP_IDS = {3, 4}   # stop, stopLeft
+LISA_GO_IDS   = {0, 1, 2} # go, goForward, goLeft
+
+
+# ── STOP/GO shared state ───────────────────────────────────────────────────────
+
+class _DriveState:
+    """Thread-safe STOP/GO state updated by probe, read by overlay thread."""
+    def __init__(self):
+        self._lock  = threading.Lock()
+        self._state = None          # None | "STOP" | "GO"
+        self._ts    = 0.0           # timestamp of last update
+
+    def update(self, state: str | None) -> None:
+        with self._lock:
+            self._state = state
+            self._ts    = time.time()
+
+    def get(self) -> str | None:
+        with self._lock:
+            # Clear state after 1.5 s of no detections
+            if self._state and (time.time() - self._ts) > 1.5:
+                self._state = None
+            return self._state
+
+
+# ── OpenCV STOP/GO overlay thread ─────────────────────────────────────────────
+
+def _run_stopgo_overlay(state: _DriveState, stop_event: threading.Event) -> None:
+    """Runs in background thread — draws STOP/GO indicator using OpenCV."""
+    if not _CV2_AVAILABLE:
+        print("[INFO] OpenCV not available — STOP/GO overlay disabled.")
+        return
+
+    WIN = "Driver Alert"
+    W, H = 260, 120
+    cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WIN, W, H)
+    cv2.moveWindow(WIN, 20, 20)   # top-left corner of desktop
+
+    COLORS = {
+        "STOP": (0,   0,   220),   # red   (BGR)
+        "GO":   (0,   180, 0  ),   # green (BGR)
+        None:   (40,  40,  40 ),   # dark grey
+    }
+    LABELS = {"STOP": "STOP", "GO": "GO", None: "---"}
+
+    while not stop_event.is_set():
+        s = state.get()
+        canvas = np.zeros((H, W, 3), dtype=np.uint8)
+        canvas[:] = COLORS[s]
+
+        label = LABELS[s]
+        font  = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 2.4 if s else 1.2
+        thick = 5    if s else 2
+        (tw, th), _ = cv2.getTextSize(label, font, scale, thick)
+        tx = (W - tw) // 2
+        ty = (H + th) // 2
+        cv2.putText(canvas, label, (tx, ty), font, scale, (255, 255, 255), thick, cv2.LINE_AA)
+
+        cv2.imshow(WIN, canvas)
+        if cv2.waitKey(100) & 0xFF == ord("q"):
+            break
+
+    cv2.destroyAllWindows()
 
 COCO_GIE_ID = 1
 LISA_GIE_ID = 2
@@ -241,6 +322,7 @@ def _make_probe(
     udp_port: int,
     coco_labels: dict,
     lisa_labels: dict,
+    drive_state: _DriveState,
 ):
     seq = [0]
 
@@ -304,6 +386,15 @@ def _make_probe(
             except StopIteration:
                 break
 
+        # ── update STOP/GO overlay state ──────────────────────────────
+        lisa_ids = {d["class_id"] for d in detections if d["source_id"] == LISA_GIE_ID}
+        if lisa_ids & LISA_STOP_IDS:
+            drive_state.update("STOP")
+        elif lisa_ids & LISA_GO_IDS:
+            drive_state.update("GO")
+        else:
+            drive_state.update(None)
+
         if udp_sock and detections:
             payload = json.dumps({
                 "schema_version": 1,
@@ -326,7 +417,7 @@ def _make_probe(
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Full DeepStream 7.x pipeline: nvinfer + nvtracker + nvdsosd + RTSP"
+        description="Full DeepStream 7.x pipeline: nvinfer + nvtracker + nvdsosd"
     )
     p.add_argument("--source", required=True,
         help="csi | csi:1 | 0 | /dev/video0 | rtsp://... | file.mp4")
@@ -334,8 +425,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--lisa-engine",  default="models/yolov8n_lisa_v1.1.engine")
     p.add_argument("--width",        type=int, default=1920)
     p.add_argument("--height",       type=int, default=1080)
+    p.add_argument("--output",       default="display",
+        choices=["display", "rtsp"],
+        help="Output mode: display (monitor) or rtsp (iPad). Default: display.")
     p.add_argument("--rtsp-port",    type=int, default=8554,
-        help="RTSP port for iPad VLC. Default 8554.")
+        help="RTSP port (only used when --output rtsp). Default 8554.")
     p.add_argument("--udp-host",     default="",
         help="UDP host for AR HUD. Leave empty to disable.")
     p.add_argument("--udp-port",     type=int, default=5055)
@@ -351,7 +445,6 @@ def main() -> None:
     # ── pyds check ────────────────────────────────────────────────────
     if not _PYDS_AVAILABLE:
         print("[INFO] pyds not found — UDP HUD output disabled.")
-        print("       RTSP video stream to iPad works normally.")
         if args.udp_host:
             print("[WARN] --udp-host ignored (pyds required for JSON output).")
 
@@ -417,47 +510,55 @@ def main() -> None:
 
     # nvdsosd
     osd = _make("nvdsosd", "osd")
-    osd.set_property("process-mode",  1)   # GPU mode — required for nvrtspoutsinkbin (NVMM)
+    osd.set_property("process-mode",  1)
     osd.set_property("display-text",  1)
 
-    # tee splits output into RTSP and HUD branches
-    tee = _make("tee", "t")
-
-    # RTSP branch
-    q_rtsp   = _make("queue",             "q_rtsp")
-    rtsp_out = _make("nvrtspoutsinkbin", "rtsp_out")
-    rtsp_out.set_property("rtsp-port",   args.rtsp_port)
-    rtsp_out.set_property("bitrate",     4000000)
-
-    # HUD/probe branch
-    q_hud    = _make("queue",     "q_hud")
-    hud_sink = _make("fakesink",  "hud_sink")
-    hud_sink.set_property("sync", False)
+    # ── output sink ───────────────────────────────────────────────────
+    if args.output == "rtsp":
+        q_out    = _make("queue",            "q_out")
+        sink     = _make("nvrtspoutsinkbin", "sink")
+        sink.set_property("rtsp-port", args.rtsp_port)
+        sink.set_property("bitrate",   2000000)
+    else:
+        # display mode — render directly on HDMI monitor
+        q_out = _make("queue",          "q_out")
+        sink  = _make("nveglglessink",  "sink")
+        sink.set_property("sync",         False)
+        sink.set_property("window-x",     0)
+        sink.set_property("window-y",     0)
+        sink.set_property("window-width",  args.width)
+        sink.set_property("window-height", args.height)
 
     # add all to pipeline
-    for elm in (mux, pgie, sgie, tracker, osd, tee,
-                q_rtsp, rtsp_out, q_hud, hud_sink):
+    for elm in (mux, pgie, sgie, tracker, osd, q_out, sink):
         pipeline.add(elm)
 
-    # link main chain
+    # link chain
     mux.link(pgie)
     pgie.link(sgie)
     sgie.link(tracker)
     tracker.link(osd)
-    osd.link(tee)
-
-    # tee → RTSP branch
-    tee.get_request_pad("src_%u").link(q_rtsp.get_static_pad("sink"))
-    q_rtsp.link(rtsp_out)
-
-    # tee → HUD branch
-    tee.get_request_pad("src_%u").link(q_hud.get_static_pad("sink"))
-    q_hud.link(hud_sink)
+    osd.link(q_out)
+    q_out.link(sink)
 
     # source → mux
     _add_source(pipeline, args.source, args.width, args.height, mux)
 
-    # ── probe on osd sink pad → UDP JSON ──────────────────────────────
+    # ── STOP/GO state + overlay thread ────────────────────────────────
+    drive_state = _DriveState()
+    stop_event  = threading.Event()
+    overlay_thread = threading.Thread(
+        target=_run_stopgo_overlay,
+        args=(drive_state, stop_event),
+        daemon=True,
+    )
+    overlay_thread.start()
+    if _CV2_AVAILABLE:
+        print("Driver alert → STOP/GO overlay window active")
+    else:
+        print("[INFO] OpenCV not found — STOP/GO overlay disabled.")
+
+    # ── probe on osd sink pad → drive state + UDP JSON ────────────────
     udp_sock: socket.socket | None = None
     if args.udp_host:
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -466,7 +567,7 @@ def main() -> None:
     osd.get_static_pad("sink").add_probe(
         Gst.PadProbeType.BUFFER,
         _make_probe(udp_sock, args.udp_host, args.udp_port,
-                    coco_labels, lisa_labels),
+                    coco_labels, lisa_labels, drive_state),
         0,
     )
 
@@ -478,8 +579,11 @@ def main() -> None:
 
     # ── start ─────────────────────────────────────────────────────────
     print(f"\nStarting DeepStream pipeline...")
-    print(f"RTSP ready  → rtsp://0.0.0.0:{args.rtsp_port}/ds-test")
-    print(f"iPad VLC    → rtsp://10.0.0.119:{args.rtsp_port}/ds-test")
+    if args.output == "rtsp":
+        print(f"RTSP ready  → rtsp://0.0.0.0:{args.rtsp_port}/ds-test")
+        print(f"iPad VLC    → rtsp://10.0.0.119:{args.rtsp_port}/ds-test")
+    else:
+        print("Output      → HDMI monitor (nveglglessink)")
     print("Press Ctrl+C to stop.\n")
 
     pipeline.set_state(Gst.State.PLAYING)
@@ -488,6 +592,8 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
+        stop_event.set()
+        overlay_thread.join(timeout=2)
         pipeline.set_state(Gst.State.NULL)
         if udp_sock:
             udp_sock.close()

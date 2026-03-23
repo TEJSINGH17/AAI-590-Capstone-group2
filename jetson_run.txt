@@ -1,5 +1,5 @@
 ==============================================
- Jetson Orin Nano — DeepStream Pipeline Steps
+ Jetson Orin Nano — DeepStream Pipeline Setup
  (Native DeepStream — no Docker needed)
 ==============================================
 
@@ -35,130 +35,28 @@ ls /home/tej/capstone/deepstream/configs/libnvdsinfer_custom_impl_Yolo.so
 ----------------------------------------------
 STEP 4 — Export models via DeepStream-Yolo (one-time)
 ----------------------------------------------
-# This re-exports .pt → .onnx with correct output format for DeepStream parser
+# Re-exports .pt → .onnx with correct output format for DeepStream parser
 cd /tmp/DeepStream-Yolo
 
-python3 utils/export_yoloV8.py \
-    -w /home/tej/capstone/models/yolov8n.pt \
-    --dynamic
-
-python3 utils/export_yoloV8.py \
-    -w /home/tej/capstone/models/yolov8n_lisa_v1.1.pt \
-    --dynamic
+python3 utils/export_yoloV8.py -w /home/tej/capstone/models/yolov8n.pt --dynamic
+python3 utils/export_yoloV8.py -w /home/tej/capstone/models/yolov8n_lisa_v1.1.pt --dynamic
 
 # Move ONNX files to models folder
 mv yolov8n.onnx /home/tej/capstone/models/
 mv yolov8n_lisa_v1.1.onnx /home/tej/capstone/models/
 
 ----------------------------------------------
-STEP 5 — Run pipeline with MP4 file (test first)
-----------------------------------------------
-# NOTE: First run builds new TRT engines from ONNX — takes ~5 min
-# Subsequent runs are fast
-
-cd /home/tej/capstone
-
-python3 deepstream/ds_pipeline.py \
-    --source test_data/video_test1.mp4 \
-    --coco-engine models/yolov8n_deepstream.engine \
-    --lisa-engine models/yolov8n_lisa_v1.1_deepstream.engine \
-    --rtsp-port 8554
-
-ls -lh /home/tej/capstone/models/*.engine
-
-----------------------------------------------
-STEP 6 — iPad VLC (while Step 5 is running)
-----------------------------------------------
-Open VLC on iPad → Network → enter:
-  rtsp://10.0.0.119:8554/ds-test
-
-----------------------------------------------
-STEP 7 — Run with RPi Camera V2 (CSI)
-----------------------------------------------
-sudo systemctl start nvargus-daemon
-
-cd /home/tej/capstone
-
-python3 deepstream/ds_pipeline.py \
-    --source csi \
-    --width 1920 --height 1080 \
-    --coco-engine models/yolov8n_deepstream.engine \
-    --lisa-engine models/yolov8n_lisa_v1.1_deepstream.engine \
-    --rtsp-port 8554
-
-----------------------------------------------
-STEP 8 — Run with USB camera (alternative)
+STEP 5 — Build TensorRT engines (one-time, ~15 min each)
 ----------------------------------------------
 cd /home/tej/capstone
 
-python3 deepstream/ds_pipeline.py \
-    --source 0 \
-    --width 1280 --height 720 \
-    --coco-engine models/yolov8n_deepstream.engine \
-    --lisa-engine models/yolov8n_lisa_v1.1_deepstream.engine \
-    --rtsp-port 8554
-
-----------------------------------------------
-STEP 9 — Optional: add UDP HUD output
-----------------------------------------------
-Add these flags to any command above:
-  --udp-host 192.168.x.x --udp-port 5055
-
-----------------------------------------------
-NOTES
-----------------------------------------------
-- Steps 2, 3, 4 are one-time only
-- Always run Step 5 (MP4 test) before using camera
-- First run of Step 5 is slow (~5 min) — building new TRT engines
-- Jetson IP        : 10.0.0.119
-- iPad VLC URL     : rtsp://10.0.0.119:8554/ds-test
-- Mac test command : ffplay rtsp://10.0.0.119:8554/ds-test
-- Press Ctrl+C to stop the pipeline
-- No PyTorch needed — nvinfer uses TensorRT directly
-
-
-
-cd /home/tej/capstone
-
-# Build COCO engine
-trtexec \
-    --onnx=models/yolov8n.onnx \
-    --saveEngine=models/yolov8n_deepstream.engine \
-    --fp16 \
-    --minShapes=images:1x3x640x640 \
-    --optShapes=images:1x3x640x640 \
-    --maxShapes=images:1x3x640x640
-
-# Build LISA engine
-trtexec \
-    --onnx=models/yolov8n_lisa_v1.1.onnx \
-    --saveEngine=models/yolov8n_lisa_v1.1_deepstream.engine \
-    --fp16 \
-    --minShapes=images:1x3x640x640 \
-    --optShapes=images:1x3x640x640 \
-    --maxShapes=images:1x3x640x640
-If trtexec is not in PATH:
-
-
-/usr/src/tensorrt/bin/trtexec --onnx=...
-
-
-cd /home/tej/capstone
+# Check ONNX input tensor name (should print "input: input [0,3,640,640]")
 python3 -c "
 import onnx
 m = onnx.load('models/yolov8n.onnx')
 for i in m.graph.input:
     print('input:', i.name, [d.dim_value for d in i.type.tensor_type.shape.dim])
-
-
-
-
 "
-
-
-
-********
-
 
 # Build COCO engine
 /usr/src/tensorrt/bin/trtexec \
@@ -168,9 +66,8 @@ for i in m.graph.input:
     --minShapes=input:1x3x640x640 \
     --optShapes=input:1x3x640x640 \
     --maxShapes=input:1x3x640x640
-Let that finish, then run the LISA one:
 
-
+# Build LISA engine
 /usr/src/tensorrt/bin/trtexec \
     --onnx=models/yolov8n_lisa_v1.1.onnx \
     --saveEngine=models/yolov8n_lisa_v1.1_deepstream.engine \
@@ -179,7 +76,85 @@ Let that finish, then run the LISA one:
     --optShapes=input:1x3x640x640 \
     --maxShapes=input:1x3x640x640
 
+# Verify both engines exist (~100-300 MB each)
+ls -lh /home/tej/capstone/models/*.engine
 
+----------------------------------------------
+STEP 6 — Make launcher executable (one-time)
+----------------------------------------------
+chmod +x /home/tej/capstone/start.sh
+
+----------------------------------------------
+STEP 7 — Run pipeline manually
+----------------------------------------------
 cd /home/tej/capstone
-python3 -c "from ultralytics import YOLO; m=YOLO('models/yolov8n_lisa_v1.1.pt'); print(m.names)"
-python3 -c "from ultralytics import YOLO; m=YOLO('models/yolov8n_lisa_v1.1.pt'); print(m.names)"
+
+# Auto-detect camera or fall back to MP4
+./start.sh
+
+# Force MP4 test mode
+./start.sh mp4
+
+# Force USB camera (EMEET C950)
+./start.sh camera
+
+To get the overlay working, verify on Jetson:
+
+
+python3 -c "import cv2; print(cv2.__version__)"
+If cv2 is missing:
+
+
+pip3 install opencv-python-headless
+
+----------------------------------------------
+STEP 8 — Auto-start on boot (one-time setup)
+----------------------------------------------
+# Copy service file
+sudo cp /home/tej/capstone/deepstream.service /etc/systemd/system/
+
+# Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable deepstream
+sudo systemctl start deepstream
+
+# Check status
+sudo systemctl status deepstream
+
+# View live logs
+journalctl -u deepstream -f
+
+# Stop / restart
+sudo systemctl stop deepstream
+sudo systemctl restart deepstream
+
+# Disable auto-start
+sudo systemctl disable deepstream
+
+----------------------------------------------
+NOTES
+----------------------------------------------
+- Steps 2, 3, 4, 5, 6 are one-time only
+- Camera: EMEET C950 USB → /dev/video0 (auto-detected)
+- Output: annotated video displayed on HDMI monitor (nveglglessink)
+- For RTSP iPad streaming: ./start.sh mp4 --output rtsp (or set OUTPUT_MODE=rtsp in start.sh)
+- Jetson IP     : 10.0.0.119
+- Press Ctrl+C to stop pipeline (manual mode)
+- No PyTorch needed — nvinfer uses TensorRT directly
+
+
+
+sudo apt-get install -y python3-pyqt5
+
+python3 -c "
+import sys
+sys.path.insert(0, '/opt/nvidia/deepstream/deepstream/lib')
+import pyds
+print('pyds OK:', pyds.__file__)
+"
+
+find /opt/nvidia /usr/lib /usr/local/lib -name "pyds*.so" 2>/dev/null
+
+python3 -c "from ultralytics import YOLO; m = YOLO('models/yolov8n_lisa_v1.1.pt'); print('OK')"
+
+
