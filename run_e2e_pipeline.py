@@ -7,10 +7,10 @@ Original file is located at
     https://colab.research.google.com/drive/1S9R1SQPX-SSvSS-NuimK5E4o69eKF2S3
 """
 
-import os
+import os, shutil
 os.chdir("/content")
 
-# Git Clone if needed
+# Clone if needed
 if not os.path.exists("/content/AAI-590-Capstone-group2"):
     os.system("git clone https://github.com/TEJSINGH17/AAI-590-Capstone-group2.git /content/AAI-590-Capstone-group2")
     print("Repo cloned")
@@ -24,14 +24,23 @@ print("Dependencies ready")
 # Check JSON
 json_dir = "/content/AAI-590-Capstone-group2/runs/hud/ds_1"
 n = len([f for f in os.listdir(json_dir) if f.endswith('.json')]) if os.path.exists(json_dir) else 0
-print(f"{'##' if n>0 else 'X'} JSON files: {n}")
+print(f"{'' if n>0 else 'no json'} JSON files: {n}")
 
 # Check video
 video = "/content/AAI-590-Capstone-group2/output_ds_1.mp4"
-size = os.path.getsize(video)/1e6 if os.path.exists(video) else 0
-print(f"{'##' if size>1 else 'Not Done'} Video: {size:.1f} MB")
+size  = os.path.getsize(video)/1e6 if os.path.exists(video) else 0
+if size > 1:
+    print(f" Video: {size:.1f} MB")
+else:
+    print(" Video missing — uploading...")
+    from google.colab import files
+    uploaded = files.upload()
+    for fname in uploaded.keys():
+        dest = f"/content/AAI-590-Capstone-group2/{fname}"
+        shutil.move(fname, dest)
+        print(f"{fname}: {os.path.getsize(dest)/1e6:.1f} MB")
 
-print("\n Setup done!")
+print("\nSetup done! Run Cell 2 to select mode.")
 
 #Upload mp4 videos from your drive
 import os, shutil
@@ -64,9 +73,9 @@ print("="*60)
 print("  OmniView AI — Select Pipeline Mode")
 print("="*60)
 display(mode_selector)
-print("\nAfter selecting mode, run next cell")
+print("\nSelect mode above, then run Cell 3 ")
 
-import os
+import os, subprocess, time, threading
 os.chdir("/content")
 
 MODE  = mode_selector.value
@@ -76,8 +85,9 @@ JSON  = f"{REPO}/runs/hud/ds_1"
 
 print(f"Running: {MODE.upper()} mode\n")
 
+# ── Mode 1: File Mode ─────────────────────────────────────────────────────────
 if MODE == "file":
-    !python3 /content/AAI-590-Capstone-group2/omniview_e2e_live.py \
+    !python3 -u /content/AAI-590-Capstone-group2/omniview_e2e_live.py \
         --no-bootstrap \
         --mode file \
         --json /content/AAI-590-Capstone-group2/runs/hud/ds_1 \
@@ -86,19 +96,85 @@ if MODE == "file":
         --gif-frames 300 \
         --gif-fps 10
 
+# ── Mode 2: UDP Live ──────────────────────────────────────────────────────────
 elif MODE == "udp":
-    print("Starting UDP mode...")
+    # Patch Victor's pipeline for Colab paths
+    pipeline_src = f"{REPO}/victor_deepstream/omniview_pipeline.py"
+    with open(pipeline_src) as f:
+        code = f.read()
+    code = code.replace("DISPLAY      = True",  "DISPLAY      = False")
+    code = code.replace("RECORD       = True",  "RECORD       = False")
+    code = code.replace("/home/logicpro09/omniview_ai/yolov8n_lisa_v1.1.pt",
+                        f"{REPO}/victor_deepstream/yolov8n_lisa_v1.1.onnx")
+    code = code.replace("/home/logicpro09/omniview_ai/yolov8n.pt",
+                        f"{REPO}/models/yolov8n.pt")
+    code = code.replace("/home/logicpro09/omniview_ai/output_ds_3_reenc.mp4", VIDEO)
+    code = code.replace("output_ds_3_reenc.mp4", VIDEO)
+    patched = "/content/omniview_pipeline_patched.py"
+    with open(patched, "w") as f:
+        f.write(code)
+    print("Victor's pipeline patched for Colab")
 
+    # Start Victor's pipeline in background
+    proc = subprocess.Popen(
+        ["python3", "-u", patched],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True, bufsize=1
+    )
+    def _stream(p):
+        for line in p.stdout:
+            print(f"[Victor] {line}", end="", flush=True)
+    threading.Thread(target=_stream, args=(proc,), daemon=True).start()
+
+    print("Waiting 25s for Victor's models to load...")
+    time.sleep(25)
+    print("Starting HUD in UDP mode...\n")
+
+    !python3 -u /content/AAI-590-Capstone-group2/omniview_e2e_live.py \
+        --no-bootstrap \
+        --mode udp \
+        --video /content/AAI-590-Capstone-group2/output_ds_1.mp4 \
+        --output /content/omniview_live_hud_udp.mp4 \
+        --gif-frames 300 \
+        --gif-fps 10 \
+        --udp-host 127.0.0.1 \
+        --udp-port 5055 \
+        --udp-wait 15 \
+        --max-frames 2203
+
+    proc.terminate()
+    print("Victor's pipeline stopped")
+
+# ── Mode 3: Jetson ────────────────────────────────────────────────────────────
 elif MODE == "jetson":
-    print("Jetson required for Mode 3")
+    JETSON_IP = "10.0.0.119"
+    print("="*60)
+    print("  MODE 3 — Jetson DeepStream Pipeline (Tej)")
+    print("="*60)
+    print(f"  Step 1: Connect Jetson to network")
+    print(f"  Step 2: SSH into Jetson:")
+    print(f"          ssh tej@{JETSON_IP}")
+    print(f"  Step 3: Run DeepStream pipeline:")
+    print(f"          cd /home/tej/capstone && ./start.sh")
+    print(f"  Step 4: Come back here, select Mode 2 (UDP)")
+    print(f"          and set udp-host to {JETSON_IP}")
+    print("="*60)
+    print("\n  Jetson ds_pipeline.py config:")
+    print(f"  COCO engine : models/yolov8n_deepstream.engine")
+    print(f"  LISA engine : models/yolov8n_lisa_v1.1_deepstream.engine")
+    print(f"  UDP output  : {JETSON_IP}:5055")
+    print(f"  RTSP output : rtsp://{JETSON_IP}:8554/ds-test")
 
 from IPython.display import Image, display
 import os
 
-gif = "/content/omniview_live_hud.gif"
-if os.path.exists(gif):
-    size = os.path.getsize(gif)/1e6
-    print(f"GIF: {size:.1f} MB  (30 seconds)")
-    display(Image(filename=gif))
+for gif in ["/content/omniview_live_hud.gif",
+            "/content/omniview_live_hud_udp.gif"]:
+    if os.path.exists(gif):
+        size = os.path.getsize(gif)/1e6
+        print(f"GIF ready: {size:.1f} MB")
+        display(Image(filename=gif))
+        break
 else:
-    print("GIF not found yet")
+    print("No GIF found — run Cell 3 first")
