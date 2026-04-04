@@ -1,0 +1,193 @@
+==============================================
+ Jetson Orin Nano — DeepStream Pipeline Setup
+ (Native DeepStream — no Docker needed)
+==============================================
+
+Run these commands in order on the Jetson terminal.
+
+----------------------------------------------
+STEP 1 — Verify files are in place
+----------------------------------------------
+ls /home/tej/capstone/deepstream/
+ls /home/tej/capstone/models/
+ls /home/tej/capstone/test_data/
+
+----------------------------------------------
+STEP 2 — Fix paths (one-time)
+----------------------------------------------
+echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
+echo 'export PYTHONPATH=/opt/nvidia/deepstream/deepstream/lib:$PYTHONPATH' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify
+nvcc --version
+deepstream-app --version
+
+----------------------------------------------
+STEP 3 — Build YOLOv8 custom parser (one-time)
+----------------------------------------------
+cd /home/tej/capstone
+bash deepstream/build_parser.sh
+
+# Verify
+ls /home/tej/capstone/deepstream/configs/libnvdsinfer_custom_impl_Yolo.so
+
+----------------------------------------------
+STEP 4 — Export models via DeepStream-Yolo (one-time)
+----------------------------------------------
+# Re-exports .pt → .onnx with correct output format for DeepStream parser
+cd /tmp/DeepStream-Yolo
+
+python3 utils/export_yoloV8.py -w /home/tej/capstone/models/yolov8n.pt --dynamic
+python3 utils/export_yoloV8.py -w /home/tej/capstone/models/yolov8n_lisa_v1.1.pt --dynamic
+
+# Move ONNX files to models folder
+mv yolov8n.onnx /home/tej/capstone/models/
+mv yolov8n_lisa_v1.1.onnx /home/tej/capstone/models/
+
+----------------------------------------------
+STEP 5 — Build TensorRT engines (one-time, ~15 min each)
+----------------------------------------------
+cd /home/tej/capstone
+
+# Check ONNX input tensor name (should print "input: input [0,3,640,640]")
+python3 -c "
+import onnx
+m = onnx.load('models/yolov8n.onnx')
+for i in m.graph.input:
+    print('input:', i.name, [d.dim_value for d in i.type.tensor_type.shape.dim])
+"
+
+# Build COCO engine
+/usr/src/tensorrt/bin/trtexec \
+    --onnx=models/yolov8n.onnx \
+    --saveEngine=models/yolov8n_deepstream.engine \
+    --fp16 \
+    --minShapes=input:1x3x640x640 \
+    --optShapes=input:1x3x640x640 \
+    --maxShapes=input:1x3x640x640
+
+# Build LISA engine
+/usr/src/tensorrt/bin/trtexec \
+    --onnx=models/yolov8n_lisa_v1.1.onnx \
+    --saveEngine=models/yolov8n_lisa_v1.1_deepstream.engine \
+    --fp16 \
+    --minShapes=input:1x3x640x640 \
+    --optShapes=input:1x3x640x640 \
+    --maxShapes=input:1x3x640x640
+
+# Verify both engines exist (~100-300 MB each)
+ls -lh /home/tej/capstone/models/*.engine
+
+----------------------------------------------
+STEP 6 — Make launcher executable (one-time)
+----------------------------------------------
+chmod +x /home/tej/capstone/start.sh
+
+----------------------------------------------
+STEP 7 — Run pipeline manually
+----------------------------------------------
+cd /home/tej/capstone
+
+# Auto-detect camera or fall back to MP4
+./start.sh
+
+# Force MP4 test mode
+./start.sh mp4
+
+# Force USB camera (EMEET C950)
+./start.sh camera
+
+To get the overlay working, verify on Jetson:
+
+
+python3 -c "import cv2; print(cv2.__version__)"
+If cv2 is missing:
+
+
+pip3 install opencv-python-headless
+
+----------------------------------------------
+STEP 8 — Auto-start on boot (one-time setup)
+----------------------------------------------
+# Copy service file
+sudo cp /home/tej/capstone/deepstream.service /etc/systemd/system/
+
+# Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable deepstream
+sudo systemctl start deepstream
+
+# Check status
+sudo systemctl status deepstream
+
+# View live logs
+journalctl -u deepstream -f
+
+# Stop / restart
+sudo systemctl stop deepstream
+sudo systemctl restart deepstream
+
+# Disable auto-start
+sudo systemctl disable deepstream
+
+----------------------------------------------
+STEP 9 — Dashboard controls (daily use)
+----------------------------------------------
+# Open a terminal anytime (even while dashboard is running)
+Ctrl+Alt+T
+
+# Stop the dashboard / free the desktop
+sudo systemctl stop deepstream
+
+# Start it again
+sudo systemctl start deepstream
+
+# Restart (e.g. after a code change)
+sudo systemctl restart deepstream
+
+# Check if it's running
+sudo systemctl status deepstream
+
+# View live logs
+journalctl -u deepstream -f
+
+# Disable auto-start on boot (pipeline will NOT launch next reboot)
+sudo systemctl disable deepstream
+
+# Re-enable auto-start on boot
+sudo systemctl enable deepstream
+
+# Run manually without systemd (for testing)
+cd /home/tej/capstone
+./start.sh          # auto-detect camera or MP4
+./start.sh mp4      # force MP4 test file
+./start.sh camera   # force EMEET C950 USB camera
+
+----------------------------------------------
+NOTES
+----------------------------------------------
+- Steps 2, 3, 4, 5, 6, 8 are one-time only
+- Step 9 commands are for daily use
+- Camera: EMEET C950 USB → /dev/video0 (auto-detected)
+- Output: PyQt5 dashboard on HDMI monitor (video left, STOP/GO alert right)
+- For RTSP iPad streaming: set OUTPUT_MODE=rtsp in start.sh
+- Jetson IP     : 10.0.0.119
+- Press Ctrl+C to stop pipeline (manual mode)
+- No PyTorch needed for DeepStream — nvinfer uses TensorRT directly
+- PyQt5 dashboard uses ultralytics CPU inference for STOP/GO alert panel
+
+----------------------------------------------
+PREREQUISITES (one-time installs if missing)
+----------------------------------------------
+# PyQt5
+sudo apt-get install -y python3-pyqt5
+
+# Verify ultralytics
+python3 -c "from ultralytics import YOLO; m = YOLO('models/yolov8n_lisa_v1.1.pt'); print('OK')"
+
+# Verify OpenCV
+python3 -c "import cv2; print(cv2.__version__)"
+# If missing:
+pip3 install opencv-python-headless
+

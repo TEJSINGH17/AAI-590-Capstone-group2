@@ -1,0 +1,16 @@
+[Unit]
+Description=DeepStream Autonomous Driving Pipeline
+After=network.target
+
+[Service]
+Type=simple
+User=tej
+WorkingDirectory=/home/tej/capstone
+ExecStart=/home/tej/capstone/start.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

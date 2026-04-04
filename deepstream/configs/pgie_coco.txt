@@ -1,0 +1,25 @@
+# nvinfer config — Primary GIE: YOLOv8n COCO (80 classes)
+# Patched at runtime by ds_pipeline.py for absolute paths.
+# Custom parser: DeepStream-Yolo (build via build_parser.sh)
+
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+onnx-file=../../models/yolov8n.onnx
+model-engine-file=../../models/yolov8n_deepstream.engine
+labelfile-path=../../deepstream/labels/coco.txt
+batch-size=1
+network-mode=2
+num-detected-classes=80
+cluster-mode=2
+interval=0
+gie-unique-id=1
+custom-lib-path=../../deepstream/configs/libnvdsinfer_custom_impl_Yolo.so
+engine-create-func-name=NvDsInferYoloCudaEngineGet
+parse-bbox-func-name=NvDsInferParseYolo
+
+[class-attrs-all]
+nms-iou-threshold=0.45
+pre-cluster-threshold=0.25
+topk=300

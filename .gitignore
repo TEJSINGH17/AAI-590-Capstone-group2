@@ -26,3 +26,4 @@ training/lisa_yolo/
 runs/train/
 runs/hud/
 runs/annotated/
+application/.ipynb_checkpoints/
