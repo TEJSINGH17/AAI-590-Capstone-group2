@@ -41,6 +41,7 @@ OmniView AI is a real-time traffic sign detection and blind spot monitoring syst
 | `deepstream.service` | Systemd service file for auto-starting the pipeline on Jetson boot |
 | `start.sh` | Startup script for launching the pipeline environment on Jetson |
 | `push_to_jetson.sh` | Script for pushing updated code to the Jetson device |
+| `ds_pipeline.py` | Core file to run camera feed inferencing  over Jetson nano |  
 | `jetson_run.txt` | Notes and commands for running the pipeline on Jetson |
 | `notebooks_pdf/` | PDF exports of all Jupyter notebooks for Canvas submission |
 
