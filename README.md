@@ -31,11 +31,8 @@ OmniView AI is a real-time traffic sign detection and blind spot monitoring syst
 | `hud_from_json.py` | Reads saved JSON detection files and renders HUD overlay |
 | `run_pipeline.py` | Single-model inference pipeline script |
 | `run_pipeline.ipynb` | Notebook version of the single-model pipeline |
-| `run_e2e_pipeline.py` | End-to-end pipeline connecting inference to HUD |
-| `run_e2e_pipeline.ipynb` | Notebook version of the end-to-end pipeline |
-| `omniview_e2e_live.py` | Live end-to-end pipeline with real-time UDP streaming |
-| `omniview_e2e_live_v2.py` | Updated live pipeline with velocity tracking and improved alert logic |
-| `omniview_e2e_live_v2.ipynb` | Notebook version of the v2 live pipeline |
+| `omniview_e2e_live_v3.py` | Updated live pipeline with velocity tracking and improved alert logic |
+| `omniview_e2e_live_v3.ipynb` | Notebook version of the v2 live pipeline |
 | `test_mp4_yolov8.py` | Test script for running YOLOv8 inference on a local MP4 file |
 | `test_mp4_yolov8_hud.py` | Test script combining YOLOv8 inference with HUD rendering |
 | `deepstream.service` | Systemd service file for auto-starting the pipeline on Jetson boot |
