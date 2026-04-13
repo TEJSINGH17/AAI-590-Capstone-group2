@@ -17,7 +17,7 @@ OmniView AI is a real-time traffic sign detection and blind spot monitoring syst
 |---|---|
 | `training/` | Dataset preparation, class definitions, training scripts, and the YOLOv8 fine-tuning notebook |
 | `application/` | AR HUD runtime scripts including UDP listener, velocity tracker, and live display loop |
-| `deepstream/` | DeepStream GStreamer pipeline and configuration files |
+| `deepstream/` | DeepStream GStreamer pipeline and configuration files for NVIDIA Jetson Run|
 | `victor_deepstream/` | Dual-model DeepStream inference pipeline with blind spot detection logic, per-frame JSON output, and benchmarking |
 | `models/` | Base model weights used as training starting points |
 | `trained_models/` | Fine-tuned YOLOv8 model checkpoints output from training runs |
