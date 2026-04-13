@@ -73,7 +73,7 @@ python test_mp4_yolov8.py \
   --input test_data/output_ds_1.mp4 \
   --output runs/annotated/out.mp4
 ```
-## AI HUD run flow
+## AR HUD run flow
 - Two modes: one is JSON flow and UDP flow
 - make sure upload output_ds_1.mp4 file under the project area first (and other *.mp4 files) from here https://drive.google.com/drive/folders/1G1O6tMWGRmTY_RcWvuPgfwOdUMhlbs1E?dmr=1&ec=wgc-drive-%5Bmodule%5D-goto
 before running HUD 
