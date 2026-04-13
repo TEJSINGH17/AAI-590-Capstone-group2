@@ -79,8 +79,9 @@ python test_mp4_yolov8.py \
 ## AI HUD run flow
 - Two modes: one is JSON flow and UDP flow
 - make sure upload output_ds_1.mp4 file under the project area first (and other *.mp4 files) from here https://drive.google.com/drive/folders/1G1O6tMWGRmTY_RcWvuPgfwOdUMhlbs1E?dmr=1&ec=wgc-drive-%5Bmodule%5D-goto
-- before running HUD 
+before running HUD 
 - Instructions to run both modes are in the code omniview_e2e_live_v3.ipynb or omniview_e2e_live_v3.py
+  
 python omniview_e2e_live_v3.py
 
 ## Notes
