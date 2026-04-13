@@ -9,7 +9,7 @@ OmniView AI is a real-time traffic sign detection and blind spot monitoring syst
 | Tej Singh | Team Lead, Jetson Edge Deployment |
 | Deepti Pamula | ML Engineer, Model Training |
 | Victor Salcedo | DeepStream Pipeline Engineer |
-| Sunitha Kosireddy | AR HUD Engineer |
+| Sunitha Kosireddy | AR HUD Engineer and Performance tracking |
 
 ## Project Structure
 
@@ -80,6 +80,7 @@ before running HUD
 - Instructions to run both modes are in the code omniview_e2e_live_v3.ipynb or omniview_e2e_live_v3.py
   
 python omniview_e2e_live_v3.py
+- or run notebook version in Jupyter Notebook omniview_e2e_live_v3.ipynb
 
 ## Notes
 
