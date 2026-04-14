@@ -76,7 +76,7 @@ python test_mp4_yolov8.py \
 ## AR HUD run flow
 - Two modes: one is JSON flow and UDP flow
 - make sure upload output_ds_1.mp4 or other *.mp4 file as test data file under the project area first, or when prompted (and other *.mp4 files) from here
-  https://drive.google.com/drive/folders/1i3iuQBTVqTwLLOUI8QtTs_MY4I1Zkign?dmr=1&ec=wgc-drive-%5Bmodule%5D-goto
+ - https://drive.google.com/drive/folders/1i3iuQBTVqTwLLOUI8QtTs_MY4I1Zkign?dmr=1&ec=wgc-drive-%5Bmodule%5D-goto
 
 before running HUD 
 - Instructions to run both modes are in the code omniview_e2e_live_v3.ipynb or omniview_e2e_live_v3.py
@@ -84,7 +84,8 @@ before running HUD
 python omniview_e2e_live_v3.py
 - or run notebook version in Jupyter Notebook omniview_e2e_live_v3.ipynb
 
-Output of the run is saved here for demo purposes https://drive.google.com/drive/folders/1i3iuQBTVqTwLLOUI8QtTs_MY4I1Zkign?dmr=1&ec=wgc-drive-%5Bmodule%5D-goto
+Output of the run is saved here for demo purposes 
+- https://drive.google.com/drive/folders/1i3iuQBTVqTwLLOUI8QtTs_MY4I1Zkign?dmr=1&ec=wgc-drive-%5Bmodule%5D-goto
 omniview_live_hud.gif (Json file mode : mode1)
 omniview_live_hud_udp.gif (UDP mode : mode2)
 ## Notes
