@@ -22,7 +22,7 @@ The notebook contains 22 cells organized into 6 - **sequential stages:**
 - **Report Cell + GIF Cell** — Reads the saved JSON performance files from both modes and renders a formatted side-by-side comparison report. Also displays the animated GIF outputs from both modes inline in the notebook.
 
 This code clones the project repo from GitHub if it isn't already present locally. Second, it installs the required dependencies — Ultralytics (YOLOv8), OpenCV, and ImageIO with FFmpeg support for video processing. Third, it locates the output video file output_ds_1.mp4 inside the repo and checks that it's larger than 1 MB. If the file is missing or too small, it prompts the user to manually upload it via Colab's file uploader and moves it into the repo directory. Finally, it confirms setup is complete.
- - location for output_ds_1.mp4 and output_ds_2.mp4 : upload this file from here into run area
+ - location for output_ds_1.mp4 and output_ds_2.mp4 or other mp4 files when prompted : upload this file from here into run area
  https://drive.google.com/drive/folders/1i3iuQBTVqTwLLOUI8QtTs_MY4I1Zkign?dmr=1&ec=wgc-drive-%5Bmodule%5D-goto
 
 
@@ -47,28 +47,93 @@ This code clones the project repo from GitHub if it isn't already present locall
 ## Set Up Cell
 """
 
-import os, shutil
+import os
+import shutil
+from pathlib import Path
 
+# =========================================================
+# SETUP
+# =========================================================
 REPO = "/content/AAI-590-Capstone-group2"
+REPO_URL = "https://github.com/TEJSINGH17/AAI-590-Capstone-group2.git"
+DEFAULT_VIDEO_NAME = "output_ds_1.mp4"
+
+# =========================================================
+# 1. CLONE REPO IF NEEDED
+# =========================================================
 if not os.path.exists(REPO):
-    os.system(f"git clone https://github.com/TEJSINGH17/AAI-590-Capstone-group2.git {REPO}")
+    os.system(f"git clone {REPO_URL} {REPO}")
     print("Repo cloned")
 else:
-    print("Repo exists")
+    print("Repo already exists")
 
+# =========================================================
+# 2. INSTALL DEPENDENCIES
+# =========================================================
 os.system("pip install ultralytics opencv-python-headless imageio imageio-ffmpeg -q")
 print("Dependencies ready")
 
-video = f"{REPO}/output_ds_1.mp4"
-size  = os.path.getsize(video)/1e6 if os.path.exists(video) else 0
-if size > 1:
-    print(f"Video ready: {size:.1f} MB")
+# =========================================================
+# 3. FIND OR UPLOAD VIDEO
+# =========================================================
+default_video_path = os.path.join(REPO, DEFAULT_VIDEO_NAME)
+video_path = None
+
+# Option A: use default repo video if available
+if os.path.exists(default_video_path) and os.path.getsize(default_video_path) > 1:
+    video_path = default_video_path
+    print(f"Using default repo video: {video_path}")
+    print(f"Video size: {os.path.getsize(video_path)/1e6:.1f} MB")
+
+# Option B: upload any mp4 file
 else:
+    print("Default video not found. Please upload an MP4 file.")
     from google.colab import files
+
     uploaded = files.upload()
+
+    if not uploaded:
+        raise FileNotFoundError("No file was uploaded.")
+
+    uploaded_mp4 = None
     for fname in uploaded.keys():
-        shutil.move(fname, f"{REPO}/{fname}")
-print("Setup done!")
+        if fname.lower().endswith(".mp4"):
+            uploaded_mp4 = fname
+            break
+
+    if uploaded_mp4 is None:
+        raise ValueError("Uploaded file is not an MP4. Please upload a .mp4 file.")
+
+    src = uploaded_mp4
+    dst = os.path.join(REPO, uploaded_mp4)
+
+    # Remove destination first if it already exists
+    if os.path.exists(dst):
+        os.remove(dst)
+
+    shutil.move(src, dst)
+    video_path = dst
+
+    print(f"Using uploaded video: {video_path}")
+    print(f"Video size: {os.path.getsize(video_path)/1e6:.1f} MB")
+
+# =========================================================
+# 4. MAKE A STANDARD NAME COPY
+#    This helps if later code expects output_ds_1.mp4
+# =========================================================
+standard_video_path = os.path.join(REPO, DEFAULT_VIDEO_NAME)
+
+if video_path != standard_video_path:
+    shutil.copy(video_path, standard_video_path)
+    print(f"Copied uploaded video to standard name: {standard_video_path}")
+
+# =========================================================
+# 5. FINAL STATUS
+# =========================================================
+print("\nSetup done!")
+print(f"Repo path: {REPO}")
+print(f"Selected video: {video_path}")
+print(f"Standard video path for downstream code: {standard_video_path}")
 
 """In this code 5 steps are applied in sequence:
 - Step 1 — Counter variables: Adds tracking variables before the main loop — counters for LISA detections, COCO detections, left/right blind spot alerts, fast-approach events, frames with detections, and a list to record per-frame render times.
